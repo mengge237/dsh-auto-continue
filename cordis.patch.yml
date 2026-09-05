@@ -1,0 +1,10 @@
+# dsh-auto-continue bundle patch
+#
+# 安装（web 或任意 profile；装完**完全重启 dsh web** 才生效）：
+#   dsh plugin --profile web add link:E:/S_Software/deepseek-harness/plugins/dsh-auto-continue
+# 卸载：
+#   dsh plugin --profile web remove dsh-auto-continue
+# 或先备份后手工还原 profiles/web/cordis.yml。
+- insert:
+    - id: dsh-auto-continue
+      name: '@mengge237/dsh-auto-continue'

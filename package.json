@@ -1,0 +1,37 @@
+{
+  "name": "@mengge237/dsh-auto-continue",
+  "version": "0.2.1",
+  "description": "DSH 插件：max-tokens 自动续写 + 阿里 token-plan 429/并发排队恢复。嘻嘻，我一定要用 DeepSeek harness",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "auto-continue",
+    "max-tokens",
+    "429",
+    "rate-limit",
+    "tokenplan",
+    "queue"
+  ],
+  "license": "MIT",
+  "author": "mengge237",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mengge237/dsh-auto-continue.git"
+  }
+}
