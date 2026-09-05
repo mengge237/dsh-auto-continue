@@ -1,7 +1,7 @@
 {
   "name": "@mengge237/dsh-auto-continue",
-  "version": "0.2.1",
-  "description": "DSH 插件：max-tokens 自动续写 + 阿里 token-plan 429/并发排队恢复。嘻嘻，我一定要用 DeepSeek harness",
+  "version": "0.3.0",
+  "description": "DSH 插件 v0.3：max-tokens 自动续写 + 429/限流自动恢复（agent/status 可靠挂点，稳定输出）。嘻嘻，我一定要用 DeepSeek harness",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

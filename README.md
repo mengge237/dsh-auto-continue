@@ -51,3 +51,13 @@ dsh plugin --profile web remove dsh-auto-continue   # 卸载
 - 分级：近 1 分钟步骤多的会话记为 heavy（日志可见），排队优先级更保守；
 - 环境变量：`DSH_TP_MAX_PARALLEL=2`、`DSH_TP_429_COOLDOWN_MS=60000`、
   `DSH_TP_PACING_MS=2000`、`DSH_TP_REMINDER=1`。
+
+## v0.3：稳定输出（重要更新）
+- 修复 v0.2 的失效点：不再依赖 agent 作用域的 session/event（根作用域收不到），
+  改为监听 `agent/status=idle`（与 dsh-hooks-codex 同款挂点）后**直接扫会话尾部**最近一次
+  `turn/end` 的 reason：
+  - `max-tokens` → 自动补"请继续"，同回合接着写；
+  - `429 / Allocated quota / token-limit` → 冷却 60s 后自动重发上一条请求（含本会话提醒）。
+- 去重（同一回合只处理一次）、每 agent 每分钟上限、收件箱有输入不续、全局错峰间隔。
+- 已知边界：截断瞬间 UI 仍会闪一次"已达上限"提示，随后插件自动续写——这是设计；
+  老会话请求头若钉着 `maxTokens: 1024`（预设 phase-1 遗留），请用**新会话**（已提升到 8192）。
