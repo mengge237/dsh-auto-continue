@@ -1,11 +1,11 @@
 # dsh-auto-continue
 
-> 嘻嘻，我一定要用 DeepSeek harness 🚀
+> 嘻嘻，我一定要用 DeepSeek harness
 
 DSH 回合因 **max-tokens 输出上限**被截断（UI 提示"已达到输出 token 上限…发送'继续'"）时，
 本插件自动向同一 agent 补一条"请继续"，**不用你手动发'继续'**。
 
-> ⚠️ 实验版：机制基于 dsh 0.1.2-rc.1 源码实证（turn/end 落盘后才 idle；idle 后
+> 实验版注意：机制基于 dsh 0.1.2-rc.1 源码实证（turn/end 落盘后才 idle；idle 后
 > `agent.followup()` 才能唤醒下一回合），但**尚未在真实 GUI 全链路回归**。
 > 装上后请先开 1 个会话故意制造长输出，看日志确认自动续写发生且无失控循环。
 
