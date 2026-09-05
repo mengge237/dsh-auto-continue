@@ -1,5 +1,8 @@
 # dsh-auto-continue
 
+![lang](https://img.shields.io/badge/lang-JavaScript-informational) ![status](https://img.shields.io/badge/status-maintained-brightgreen)
+
+
 > 嘻嘻，我一定要用 DeepSeek harness
 
 DSH 回合因 **max-tokens 输出上限**被截断（UI 提示"已达到输出 token 上限…发送'继续'"）时，
@@ -18,7 +21,7 @@ dsh plugin --profile web remove dsh-auto-continue   # 卸载
 备份：`C:\Users\Lenovo\.dsh\profiles\web\cordis.yml.bak-*` 由 dsh plugin 自动生成。
 
 ## 行为与守卫
-- 触发：`turn/end reason.kind === "max-tokens"` → 等 agent 回 idle → 自动 `followup('请继续')`；
+- 触发：`turn/end reason.kind === "max-tokens"`  等 agent 回 idle  自动 `followup('请继续')`；
 - 每 agent **每 60 秒最多 4 次**自动续写（防失控循环），间隔 ≥1.2s；
 - agent 收件箱已有待处理输入时不续写（尊重你正在打的字）；
 - 任何异常只记日志，不打断 agent 主流程。
@@ -34,7 +37,7 @@ dsh plugin --profile web remove dsh-auto-continue   # 卸载
 # dsh 日志里搜 dsh-auto-continue：应看到 检测到 max-tokens 截断 / 已自动续写
 # 会话 jsonl（zstd）看同一 turn 之后是否出现新的 step/turn 而不是停在截断
 ```
-第一次冒烟建议：新开会话让它写一篇明显超长的长文 → 若插件生效，无需你发"继续"，页面自动继续产出。
+第一次冒烟建议：新开会话让它写一篇明显超长的长文  若插件生效，无需你发"继续"，页面自动继续产出。
 
 ## 说明
 - 自动续写会继续消耗套餐 token（qwen3.8-flash），属"把订阅用出价值"的预期行为；
