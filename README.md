@@ -2,62 +2,89 @@
 
 ![lang](https://img.shields.io/badge/lang-JavaScript-informational) ![status](https://img.shields.io/badge/status-maintained-brightgreen)
 
-
 > 嘻嘻，我一定要用 DeepSeek harness
 
-DSH 回合因 **max-tokens 输出上限**被截断（UI 提示"已达到输出 token 上限…发送'继续'"）时，
-本插件自动向同一 agent 补一条"请继续"，**不用你手动发'继续'**。
-
-> 实验版注意：机制基于 dsh 0.1.2-rc.1 源码实证（turn/end 落盘后才 idle；idle 后
-> `agent.followup()` 才能唤醒下一回合），但**尚未在真实 GUI 全链路回归**。
-> 装上后请先开 1 个会话故意制造长输出，看日志确认自动续写发生且无失控循环。
+DSH 回合被 **max-tokens 输出上限**截断（UI 提示"已达到输出 token 上限…发送'继续'"）时，
+本插件自动补一条"请继续"；阿里 **Token Plan 429/token-limit** 触发时，冷却后自动重试。
+目标只有一个：**输出不断档，不用你手动救场**。
 
 ## 安装 / 卸载
+
 ```bash
 dsh plugin --profile web add link:E:/S_Software/deepseek-harness/plugins/dsh-auto-continue
-# 完全重启 dsh web（Settings → Plugins 可见 dsh-auto-continue）
-dsh plugin --profile web remove dsh-auto-continue   # 卸载
+# 装完必须完全重启 dsh web（Settings → Plugins 可见 dsh-auto-continue）
+dsh plugin --profile web remove dsh-auto-continue
 ```
-备份：`C:\Users\Lenovo\.dsh\profiles\web\cordis.yml.bak-*` 由 dsh plugin 自动生成。
+
+备份：`C:\Users\Lenovo\.dsh\profiles\web\cordis.yml.bak-*`（dsh plugin 自动生成）。
+
+## 30 秒自检（不用盯 GUI）
+
+```bash
+# 1) 插件是否真的挂上了（每次启动一行）
+tail -3 ~/.dsh/auto-continue.log
+
+# 2) 是否真的续写过：会话存档里找插件署名的 user/message
+python ~/dsh-fixes/scan_auto_continue.py --since "2026-09-05 22:43:00"
+```
+
+`auto-continue.log` 会记录 `已挂载（v0.3.1）…`、`max-tokens 截断（turn N）→ 自动续写`、
+`检测到 429/token-limit … → Xs 后自动重试（第 k/3 次）`；不想留文件日志就 `DSH_AUTO_CONTINUE_LOG=off`。
+
+## 机制（对 dsh 0.1.2-rc.1 编译产物实证）
+
+| 假设 | 依据 |
+|---|---|
+| 根作用域 `ctx.on('agent/status')` 收得到所有 agent | `agentEvents()` 把 `agent` 融进 payload；官方插件（compaction-basic / goal-round-driver / sdk-jsonrpc-server）同款用法 |
+| 收到 `idle` 时尾部 `turn/end` 已落盘 | `turn()` 的 `finally` 先 `session.append("turn/end")`，`kick()` 的 `finally` 才 `setPhase(idle)` |
+| `reason.kind === 'max-tokens'` / `reason.error.{message,code}` | `dsh-session` `TurnEndReasonMap`、`LlmFailure` |
+| `agent.followup(msg)` 必须传**完整 message** | `followup → send → inbox.splice(...,[message])`，字符串会被当成残缺消息 |
+| `inbox.hasPending` 是 boolean getter | `dsh-agent` `Inbox`（不是函数，别写 `typeof === 'function'`） |
+| 插件目录解析不到 `@deepseek-ai/dsh-llm` | 实测 `ERR_MODULE_NOT_FOUND`（profile 的 node_modules 无 `@deepseek-ai` 作用域）→ v0.3.1 自带完整消息构造 |
+| **service 取值必须留在事件派发那一帧内** | 一旦 `await` 过再调 `agent.followup()`，cordis proxy 在 `fiber.store` 取不到 inject 服务，抛 `cannot get required service "agents" in inactive context`（ac-rig 实测）→ 所以消息构造**同步、零依赖**，max-tokens 分支**同帧投递**，只有 429 冷却才用定时器 |
+| 真实 429 的 `error.code` 是 `QUOTA` 不是 `RATE_LIMIT` | 本机 `turn/end` 语料：`429: {"message":"Allocated quota exceeded … #token-limit","code":"insufficient_quota"}`；而 `Free quota exhausted / 余额不足` 也是 `QUOTA` 却**不可恢复** → 判定同时看 code 与文案，并用 `DEAD_QUOTA` 白名单排除 |
 
 ## 行为与守卫
-- 触发：`turn/end reason.kind === "max-tokens"`  等 agent 回 idle  自动 `followup('请继续')`；
-- 每 agent **每 60 秒最多 4 次**自动续写（防失控循环），间隔 ≥1.2s；
-- agent 收件箱已有待处理输入时不续写（尊重你正在打的字）；
-- 任何异常只记日志，不打断 agent 主流程。
+
+- 触发：回合 `max-tokens` 截断，或 `429 / Allocated quota exceeded / token-limit / insufficient_quota`；
+- 每 agent 每 60 秒最多 `DSH_AUTO_CONTINUE_MAX`（默认 4）次自动续写，**额度在排期时就预占**（v0.3 是发送后才计数，突发会冲破上限）；
+- **429 熔断**：连续自动重试最多 `DSH_TP_429_MAX_RETRIES`（默认 3）次，之后停手等你手动继续——
+  额度真尽时不会每分钟 4 次地无限重试；期间任何一次正常推进（`completed`）自动清零；
+- **新鲜度窗口** `DSH_AUTO_CONTINUE_STALE_MS`（默认 10 分钟）：重启/恢复老会话时，
+  不会隔几小时突然补一句"请重新执行我上一条请求"；
+- 尊重你正在打的字：`inbox.hasPending` 为真、或 agent 已被别的输入唤醒（非 idle）就放弃这一发并让出额度；
+- 全局错峰：自动消息之间至少间隔 `DSH_TP_PACING_MS`（默认 2.5s）+ 0~1.5s 抖动，平滑多会话的瞬时 TPM；
+- 429 恢复文案里的"已等待 X 秒"取真实计算值（v0.3 的 `Math.max(C-p, C)` 恒等于 C，pacing 白写）；
+- 任何异常只记日志，绝不打断 agent 主流程。
 
 ## 环境变量
+
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `DSH_AUTO_CONTINUE` | `1` | `0` 关闭插件 |
-| `DSH_AUTO_CONTINUE_MAX` | `4` | 每 agent 每分钟最大续写次数 |
+| `DSH_AUTO_CONTINUE` | `1` | `0` 整体关闭 |
+| `DSH_AUTO_CONTINUE_MAX` | `4` | 每 agent 每 60s 最大续写次数 |
+| `DSH_AUTO_CONTINUE_STALE_MS` | `600000` | 只处理 N 毫秒内的 `turn/end` |
+| `DSH_TP_429_COOLDOWN_MS` | `60000` | 429 冷却（从 `turn/end` 时刻起算） |
+| `DSH_TP_429_MAX_RETRIES` | `3` | 连续 429 自动重试上限（熔断） |
+| `DSH_TP_PACING_MS` | `2500` | 自动消息全局最小间隔（另加抖动） |
+| `DSH_TP_REMINDER` | `1` | 429 恢复消息带"仅本会话提示"文案 |
+| `DSH_AUTO_CONTINUE_LOG` | `~/.dsh/auto-continue.log` | 行日志路径；`off`/`0`/空 关闭 |
 
-## 监控（验证是否真的在工作）
+## 回归测试（0 token，不连模型）
+
 ```bash
-# dsh 日志里搜 dsh-auto-continue：应看到 检测到 max-tokens 截断 / 已自动续写
-# 会话 jsonl（zstd）看同一 turn 之后是否出现新的 step/turn 而不是停在截断
+node --test test/          # 10 例：max-tokens 续写 / 429 冷却重试 / 熔断 / 上限 / 去重 / 消息完整性
 ```
-第一次冒烟建议：新开会话让它写一篇明显超长的长文  若插件生效，无需你发"继续"，页面自动继续产出。
+
+## 版本
+
+- **v0.3.1**：修 3 个实测缺陷（残缺消息缺 `role`/`id`、`hasPending` 守卫恒假、突发冲破每分钟上限），
+  新增 429 熔断、新鲜度窗口、idle 二次确认、行日志与回归测试。
+- **v0.3**：改为根作用域 `agent/status` + 读尾部 `turn/end`（v0.2 的 agent 作用域 `session/event` 收不到事件，故完全失效）。
+- **v0.2**：加 429 冷却重试与并发错峰。
 
 ## 说明
-- 自动续写会继续消耗套餐 token（qwen3.8-flash），属"把订阅用出价值"的预期行为；
-- 若官方未来提供内置 auto-resume，本插件即废弃。
 
-## v0.2 新增：阿里 429 / 多会话并发分级排队
-- 触发：会话 turn/end 报 `429 … Allocated quota exceeded … token-limit`；
-- 行为：该会话**冷却 60s**（默认）后自动续写恢复；恢复消息里带一句
-  "已自动等待 X 秒后恢复，仅本会话提示"——**提醒只出现在触发它的工作会话，其它对话不显示**；
-- 并发：tokenplan 同跑会话超 `DSH_TP_MAX_PARALLEL`（默认 2）时，后续会话自动排队；
-- 分级：近 1 分钟步骤多的会话记为 heavy（日志可见），排队优先级更保守；
-- 环境变量：`DSH_TP_MAX_PARALLEL=2`、`DSH_TP_429_COOLDOWN_MS=60000`、
-  `DSH_TP_PACING_MS=2000`、`DSH_TP_REMINDER=1`。
-
-## v0.3：稳定输出（重要更新）
-- 修复 v0.2 的失效点：不再依赖 agent 作用域的 session/event（根作用域收不到），
-  改为监听 `agent/status=idle`（与 dsh-hooks-codex 同款挂点）后**直接扫会话尾部**最近一次
-  `turn/end` 的 reason：
-  - `max-tokens` → 自动补"请继续"，同回合接着写；
-  - `429 / Allocated quota / token-limit` → 冷却 60s 后自动重发上一条请求（含本会话提醒）。
-- 去重（同一回合只处理一次）、每 agent 每分钟上限、收件箱有输入不续、全局错峰间隔。
-- 已知边界：截断瞬间 UI 仍会闪一次"已达上限"提示，随后插件自动续写——这是设计；
-  老会话请求头若钉着 `maxTokens: 1024`（预设 phase-1 遗留），请用**新会话**（已提升到 8192）。
+- 自动续写继续消耗套餐 token（`tokenplan/qwen3.8-flash`），属"把订阅用出价值"的预期行为；
+- 只统计/只影响套餐 provider 之外的会话不做特殊处理：任何 provider 的 `max-tokens` 都会续，429 只对 token-limit 类文案生效；
+- 若官方将来内置 auto-resume，本插件即可废弃。

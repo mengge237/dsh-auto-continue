@@ -1,7 +1,7 @@
 {
   "name": "@mengge237/dsh-auto-continue",
-  "version": "0.3.0",
-  "description": "DSH 插件 v0.3：max-tokens 自动续写 + 429/限流自动恢复（agent/status 可靠挂点，稳定输出）。嘻嘻，我一定要用 DeepSeek harness",
+  "version": "0.3.1",
+  "description": "DSH 插件 v0.3.1：max-tokens 自动续写 + 429/限流自动恢复（agent/status 挂点、完整 user message、429 熔断）。嘻嘻，我一定要用 DeepSeek harness",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -12,6 +12,9 @@
     "lib/",
     "README.md"
   ],
+  "scripts": {
+    "test": "node --test test/"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
