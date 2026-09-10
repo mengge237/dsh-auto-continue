@@ -1,0 +1,48 @@
+name: 缺陷报告
+description: 有什么坏了、怎么坏的
+title: "[bug] "
+labels: ["status/triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        报告前先看一眼：这条是不是已经在 issue 列表里了。
+        能复现的最小步骤比形容词有用一百倍。
+  - type: textarea
+    id: what
+    attributes:
+      label: 现象
+      description: 实际发生了什么，报错原文（不要只写"报错了"）
+    validations:
+      required: true
+  - type: textarea
+    id: expect
+    attributes:
+      label: 期望
+      description: 你本来以为会怎样
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: 环境
+      description: 系统 / 版本 / 提交号
+    validations:
+      required: false
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 证据
+      description: 截图、日志、最小复现仓库。图片可先传到 dsh-issue-evidence 再贴链接
+    validations:
+      required: false

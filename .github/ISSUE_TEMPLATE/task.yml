@@ -1,0 +1,32 @@
+name: 任务 / 改进
+description: 要做的事，不是坏掉的东西
+title: "[task] "
+labels: ["status/triage"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: 目标
+      description: 做完之后，什么变得不一样了
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: 完成判据
+      description: 怎么算做完？要可验证，别写"优化了一下"
+    validations:
+      required: true
+  - type: textarea
+    id: plan
+    attributes:
+      label: 打算怎么做
+    validations:
+      required: false
+  - type: input
+    id: blocked
+    attributes:
+      label: 已知阻塞
+      description: 卡在哪，等谁
+    validations:
+      required: false
