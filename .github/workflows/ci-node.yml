@@ -1,0 +1,25 @@
+name: CI
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 装依赖
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      - name: 语法自检（没配 lint 时至少别是坏的）
+        run: |
+          if npm run | grep -q " lint"; then npm run lint; else
+            find . -name "*.mjs" -not -path "./node_modules/*" -print0 | xargs -0 -r -n1 node --check
+          fi
+      - name: 测试
+        run: npm test --if-present
