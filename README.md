@@ -17,7 +17,7 @@ dsh plugin --profile web add link:E:/S_Software/deepseek-harness/plugins/dsh-aut
 dsh plugin --profile web remove dsh-auto-continue
 ```
 
-备份：`C:\Users\Lenovo\.dsh\profiles\web\cordis.yml.bak-*`（dsh plugin 自动生成）。
+备份：`C:\Users\<USER>\.dsh\profiles\web\cordis.yml.bak-*`（dsh plugin 自动生成）。
 
 ## 30 秒自检（不用盯 GUI）
 
