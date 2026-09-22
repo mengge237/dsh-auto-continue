@@ -48,6 +48,7 @@ python ~/dsh-fixes/scan_auto_continue.py --since "2026-09-05 22:43:00"
 | 真实 429 的 `error.code` 是 `QUOTA` 不是 `RATE_LIMIT` | 本机 `turn/end` 语料：`429: {"message":"Allocated quota exceeded … #token-limit","code":"insufficient_quota"}`；而 `Free quota exhausted / 余额不足` 也是 `QUOTA` 却**不可恢复** → 判定同时看 code 与文案，并用 `DEAD_QUOTA` 白名单排除 |
 | 压缩检查点是一条 `user/message`，`source = {kind:'plugin', plugin:'compact'}` | `dsh-compaction` 的 `COMPACT_CHECKPOINT_MARKER` / `isCompactCheckpointSource()`；UI 也靠它认折叠块 |
 | **压缩能在轮内把整轮吞掉**（v0.4 的靶子） | 本机 69 份存档 29 次压缩实测：13 次照常干活、7 次"回一句即 `max-tokens`"（旧分支已覆盖）、**3 次 `turn/start → user[plugin:compact] → turn/end[completed]` 间隔仅 10~21ms 且零回复零工具**。compaction-basic 自己就在 log 里写 `shadowed N surface nodes`：open-turn 压缩事务会 shadow 掉排在前的 surface 节点，本来该在这一轮跑的续写就此蒸发。这种 `turn/end` 的 kind 是 `completed`，跟正常收尾一模一样，只能靠形状认 |
+| **`max-tokens` 有两种，只有一种该补枪**（v0.4.1 的靶子） | 本机 2026-09-22 存档 `session-28de2f17` 回合 12~18：`assistant/message.usage.outputTokens` 全是 **1**、`stopReason: "length"`、正文只有一个 reasoning token「I」。真因在配置：`settings.yaml` 的 `llm-pi-ai.providers.tokenplan` 只写 `id`+`name`，适配器按 `entry.maxTokens ?? base?.maxTokens ?? defaultContextWindow/defaultMaxTokens` 取值（`dsh-llm-pi-ai/lib/index.js:670-672`，内置默认 **262144** / 32768），而 pi-ai 自带目录里同一个 baseURL （`qwen-token-plan-cn.json`）这 8 个模型全是 1000000。于是 `clampMaxTokensToContext`（`pi-ai/dist/api/simple-options.js:7-10`）算出 `262144 - 430206 - 4096 < 0` → `max_tokens` 被夹成 **1**；同一份错窗口还把正常回复误判成 `pi-ai detected context overflow`，压缩自己的总结请求同样超限 → **11 次压缩只有 1 次落地**。旧版把这形状当「长答案被截断」，5 分钟连补 6 枪、每发重带 430k 输入，最后真打成 429 `insufficient_quota`。判据只看这一轮那条 assistant 的 `usage.outputTokens` ≤ 8 → 不续写、一轮只喊一次 |
 
 ## 行为与守卫
 
@@ -75,14 +76,16 @@ python ~/dsh-fixes/scan_auto_continue.py --since "2026-09-05 22:43:00"
 | `DSH_TP_PACING_MS` | `2500` | 自动消息全局最小间隔（另加抖动） |
 | `DSH_TP_REMINDER` | `1` | 429 恢复消息带"仅本会话提示"文案 |
 | `DSH_AUTO_CONTINUE_CP_WINDOW_MS` | `60000` | 检查点 → `turn/end` 的最大间隔，超过就不算"压缩吞轮"（调小更保守，实测真样本是 10~21ms） |
+| `DSH_AUTO_CONTINUE_CLAMP_TOKENS` | `8` | 一轮输出 ≤ 这个 token 数判成「输出预算被夹死」，不续写（一轮只记一条 warn） |
 | `DSH_AUTO_CONTINUE_LOG` | `~/.dsh/auto-continue.log` | 行日志路径；`off`/`0`/空 关闭 |
 
 ## 回归测试（0 token，不连模型）
 
 ```bash
-node --test test/          # 16 例：max-tokens 续写 / 429 冷却重试 / 熔断 / 上限 / 去重 / 消息完整性
+npm test                   # 18 例：max-tokens 续写 / 429 冷却重试 / 熔断 / 上限 / 去重 / 消息完整性
                            # + 6 例压缩吞轮（补枪、有产出不插手、超窗不插手、同轮只一次、
                            #   max-tokens 优先走旧分支、无检查点的 completed 保持安静）
+                           # + 2 例输出夹死判定（只回 1 个 token 不补枪、真截断照常补）
 ```
 
 测试默认 `DSH_AUTO_CONTINUE_LOG=off`，不会往 `~/.dsh/auto-continue.log` 里灌假 agent 的决策行。
@@ -101,6 +104,7 @@ goal（`create_goal` / `/goal`）才是"多轮自主推进"的正道：它有 `d
 
 ## 版本
 
+- **v0.4.1**：加「输出预算被夹死」不补枪的闸（机制表最后一行），免得把配置错误放大成 6 发 × 430k 输入的烧钱循环；顺手修 `npm test`（`node --test test/` 在 node v24 下报 MODULE_NOT_FOUND）。
 - **v0.4.0**：新增"压缩吞轮"补枪（形状判定，见机制表最后一行）；测试默认关文件日志，不再污染运维日志。
 - **v0.3.1**：修 3 个实测缺陷（残缺消息缺 `role`/`id`、`hasPending` 守卫恒假、突发冲破每分钟上限），
   新增 429 熔断、新鲜度窗口、idle 二次确认、行日志与回归测试。

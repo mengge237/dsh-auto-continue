@@ -255,3 +255,34 @@ test('a plain completed turn without any checkpoint stays silent', async () => {
   await sleep(1200)
   assert.equal(agent.sent.length, 0, 'nothing to fix here')
 })
+
+// —— v0.4.1：输出预算被夹死（contextWindow 配小了）别再续写 ——
+// 本机 2026-09-22 真实形状：provider 只声明 id+name → 适配器默认窗口 262144 →
+// pi-ai clampMaxTokensToContext 把 max_tokens 夹成 1 → 模型回 1 个 token 就 length。
+// 旧版把它当「长答案被截断」，5 分钟里连补 6 枪，每发重带 430k 输入，最后打成 429。
+const ASST_OUT = (tokens) => ({
+  type: 'assistant/message',
+  data: { message: { content: [{ type: 'text', text: 'I' }] }, usage: { outputTokens: tokens } },
+})
+
+test('a one-token max-tokens turn is a clamp, not a truncation: no auto-continue', async () => {
+  const { apply } = await load({ DSH_TP_PACING_MS: '200' })
+  const { ctx, handlers, logs } = fakeCtx()
+  apply(ctx)
+  const agent = fakeEvents([{ type: 'turn/start', data: { turn: 12 } }, ASST_OUT(1), END('max-tokens', 12)])
+  handlers['agent/status']({ agent, status: 'idle' })
+  handlers['agent/status']({ agent, status: 'idle' })
+  await sleep(1800)
+  assert.equal(agent.sent.length, 0, 'must not re-fire the same doomed request')
+  assert.equal(logs.filter((l) => JSON.stringify(l).includes('夹')).length, 1, 'warns exactly once per turn')
+})
+
+test('a genuinely truncated answer still gets its continuation', async () => {
+  const { apply } = await load({ DSH_TP_PACING_MS: '200' })
+  const { ctx, handlers } = fakeCtx()
+  apply(ctx)
+  const agent = fakeEvents([{ type: 'turn/start', data: { turn: 13 } }, ASST_OUT(8192), END('max-tokens', 13)])
+  handlers['agent/status']({ agent, status: 'idle' })
+  await sleep(1800)
+  assert.equal(agent.sent.length, 1, 'real truncation keeps the old behaviour')
+})
