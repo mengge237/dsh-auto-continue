@@ -55,8 +55,9 @@ test('max-tokens truncation triggers an automatic follow-up', async () => {
   await sleep(1800)
   assert.equal(agent.sent.length, 1, 'exactly one auto-continue message')
   assert.match(textOf(agent.sent[0]), /继续/, 'text asks to continue')
-  assert.equal(agent.sent[0].source.kind, 'plugin')
-  assert.equal(agent.sent[0].source.plugin, 'dsh-auto-continue')
+  // v4 admission gate: kind must be producer-owned; 'plugin' is hard-rejected by the persistence worker.
+  assert.equal(agent.sent[0].source.kind, 'plugin:dsh-auto-continue')
+  assert.equal(agent.sent[0].source.plugin, undefined, 'no retired plugin field')
   assert.ok(logs.some((l) => JSON.stringify(l).includes('已自动续写')), 'logs the send')
 })
 
@@ -170,9 +171,12 @@ test('follow-up message is a complete user message (role + id)', async () => {
 })
 
 // —— v0.4：压缩事务吞掉一整轮（事件序列按本机存档真实形状回放）——
-// 真实形状：turn/start → user[plugin:compact] → turn/end[completed]，中间零回复零工具，
+// 真实形状：turn/start → user[检查点] → turn/end[completed]，中间零回复零工具，
 // 检查点到 end 只有 10~21ms；旧版因为 kind 是 completed 直接放行，会话就此停住。
+// 检查点两种形状都要认：v3 及更早 {kind:'plugin',plugin:'compact'}，
+// 0.1.7/v4（含 v3→v4 迁移后的存档）{kind:'compact-checkpoint'}。
 const CP = { type: 'user/message', data: { source: { kind: 'plugin', plugin: 'compact' } } }
+const CP4 = { type: 'user/message', data: { source: { kind: 'compact-checkpoint' } } }
 const END = (kind = 'completed', turn = 5) => ({ type: 'turn/end', data: { turn, reason: { kind } } })
 const ASST = { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'x' }] } } }
 
@@ -254,6 +258,33 @@ test('a plain completed turn without any checkpoint stays silent', async () => {
   handlers['agent/status']({ agent, status: 'idle' })
   await sleep(1200)
   assert.equal(agent.sent.length, 0, 'nothing to fix here')
+})
+
+// —— v0.4.2：0.1.7 会话格式 v4 的两道硬闸 ——
+test('the v4 checkpoint shape (compact-checkpoint) gets the same nudge', async () => {
+  const { apply } = await load({ DSH_TP_PACING_MS: '200' })
+  const { ctx, handlers, logs } = fakeCtx()
+  apply(ctx)
+  const agent = fakeEvents([{ type: 'turn/start', data: { turn: 6 } }, CP4, END('completed', 6)])
+  handlers['agent/status']({ agent, status: 'idle' })
+  await sleep(1800)
+  assert.equal(agent.sent.length, 1, '0.1.7 checkpoint shape must also be recognized')
+  assert.ok(textOf(agent.sent[0]).includes('检查点'), 'nudge points at the checkpoint')
+  assert.ok(logs.some((l) => JSON.stringify(l).includes('压缩检查点后零产出')), 'decision is logged')
+})
+
+test('injected source passes the v4 admission gate (kind producer-owned, never "plugin")', async () => {
+  const { apply } = await load({ DSH_TP_PACING_MS: '200' })
+  const { ctx, handlers } = fakeCtx()
+  apply(ctx)
+  const agent = fakeAgent({ reason: { kind: 'max-tokens' }, turn: 21 })
+  handlers['agent/status']({ agent, status: 'idle' })
+  await sleep(1800)
+  const src = agent.sent[0].source
+  assert.equal(typeof src.kind, 'string')
+  assert.ok(src.kind.length > 0, 'nonempty kind')
+  assert.notEqual(src.kind, 'plugin', 'assertV4SourceRowAdmission rejects retired wrapper')
+  assert.ok(!('plugin' in src), 'no plugin field carried')
 })
 
 // —— v0.4.1：输出预算被夹死（contextWindow 配小了）别再续写 ——

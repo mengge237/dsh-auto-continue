@@ -46,7 +46,8 @@ python ~/dsh-fixes/scan_auto_continue.py --since "2026-09-05 22:43:00"
 | 插件目录解析不到 `@deepseek-ai/dsh-llm` | 实测 `ERR_MODULE_NOT_FOUND`（profile 的 node_modules 无 `@deepseek-ai` 作用域）→ v0.3.1 自带完整消息构造 |
 | **service 取值必须留在事件派发那一帧内** | 一旦 `await` 过再调 `agent.followup()`，cordis proxy 在 `fiber.store` 取不到 inject 服务，抛 `cannot get required service "agents" in inactive context`（ac-rig 实测）→ 所以消息构造**同步、零依赖**，max-tokens 分支**同帧投递**，只有 429 冷却才用定时器 |
 | 真实 429 的 `error.code` 是 `QUOTA` 不是 `RATE_LIMIT` | 本机 `turn/end` 语料：`429: {"message":"Allocated quota exceeded … #token-limit","code":"insufficient_quota"}`；而 `Free quota exhausted / 余额不足` 也是 `QUOTA` 却**不可恢复** → 判定同时看 code 与文案，并用 `DEAD_QUOTA` 白名单排除 |
-| 压缩检查点是一条 `user/message`，`source = {kind:'plugin', plugin:'compact'}` | `dsh-compaction` 的 `COMPACT_CHECKPOINT_MARKER` / `isCompactCheckpointSource()`；UI 也靠它认折叠块 |
+| 压缩检查点是一条 `user/message`，形状随运行时版本变 | **v4（0.1.7+）**：`{kind:'compact-checkpoint'}`（`dsh-compaction` 的 `COMPACT_CHECKPOINT_MARKER`，且 v3→v4 迁移把历史 `plugin:'compact'` 行也改写成它）；**v3 及更早**：`{kind:'plugin', plugin:'compact'}`。两种都认（v0.4.2） |
+| **v4 写侧硬拒 `source.kind === 'plugin'`**（v0.4.2 的靶子） | 0.1.7 起 `assertV4MessageSources`/`assertV4SourceRowAdmission`（`dsh-session-persistence-jsonl/lib/worker.cjs:10902/11683`）对消息源只认 producer 自有 kind；旧形状注入会在**下一轮开头**被拒："format v4 message requires a producer-owned source kind"（GUI 报本轮运行失败，存档无痕——被拒的是新事件）。本机 2026-09-25 18:56 实证于 `session-8c256625`（turn 12 吃 429 后插件补投那一发）。修法与官方迁移器一致：未发布插件的 kind 写 `plugin:<name>`（`dsh-session-format-v3-to-v4/lib/index.js:92` 同款改写形） |
 | **压缩能在轮内把整轮吞掉**（v0.4 的靶子） | 本机 69 份存档 29 次压缩实测：13 次照常干活、7 次"回一句即 `max-tokens`"（旧分支已覆盖）、**3 次 `turn/start → user[plugin:compact] → turn/end[completed]` 间隔仅 10~21ms 且零回复零工具**。compaction-basic 自己就在 log 里写 `shadowed N surface nodes`：open-turn 压缩事务会 shadow 掉排在前的 surface 节点，本来该在这一轮跑的续写就此蒸发。这种 `turn/end` 的 kind 是 `completed`，跟正常收尾一模一样，只能靠形状认 |
 | **`max-tokens` 有两种，只有一种该补枪**（v0.4.1 的靶子） | 本机 2026-09-22 存档 `session-28de2f17` 回合 12~18：`assistant/message.usage.outputTokens` 全是 **1**、`stopReason: "length"`、正文只有一个 reasoning token「I」。真因在配置：`settings.yaml` 的 `llm-pi-ai.providers.tokenplan` 只写 `id`+`name`，适配器按 `entry.maxTokens ?? base?.maxTokens ?? defaultContextWindow/defaultMaxTokens` 取值（`dsh-llm-pi-ai/lib/index.js:670-672`，内置默认 **262144** / 32768），而 pi-ai 自带目录里同一个 baseURL （`qwen-token-plan-cn.json`）这 8 个模型全是 1000000。于是 `clampMaxTokensToContext`（`pi-ai/dist/api/simple-options.js:7-10`）算出 `262144 - 430206 - 4096 < 0` → `max_tokens` 被夹成 **1**；同一份错窗口还把正常回复误判成 `pi-ai detected context overflow`，压缩自己的总结请求同样超限 → **11 次压缩只有 1 次落地**。旧版把这形状当「长答案被截断」，5 分钟连补 6 枪、每发重带 430k 输入，最后真打成 429 `insufficient_quota`。判据只看这一轮那条 assistant 的 `usage.outputTokens` ≤ 8 → 不续写、一轮只喊一次 |
 
@@ -104,6 +105,7 @@ goal（`create_goal` / `/goal`）才是"多轮自主推进"的正道：它有 `d
 
 ## 版本
 
+- **v0.4.2**：适配 0.1.7 / 会话格式 v4 的两道硬闸——注入消息的 source 改 `{kind:'plugin:dsh-auto-continue'}`（旧形 `kind:'plugin'` 被写侧拒绝，真机 2026-09-25 打死过 KB 会话的 429 重试补投），压缩检查点识别加收 `{kind:'compact-checkpoint'}`（0.1.7 现写与迁移后存档的形状，旧形保留）。**要重启 dsh web 才进运行时。**
 - **v0.4.1**：加「输出预算被夹死」不补枪的闸（机制表最后一行），免得把配置错误放大成 6 发 × 430k 输入的烧钱循环；顺手修 `npm test`（`node --test test/` 在 node v24 下报 MODULE_NOT_FOUND）。
 - **v0.4.0**：新增"压缩吞轮"补枪（形状判定，见机制表最后一行）；测试默认关文件日志，不再污染运维日志。
 - **v0.3.1**：修 3 个实测缺陷（残缺消息缺 `role`/`id`、`hasPending` 守卫恒假、突发冲破每分钟上限），
