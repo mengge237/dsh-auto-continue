@@ -83,7 +83,7 @@ python ~/dsh-fixes/scan_auto_continue.py --since "2026-09-05 22:43:00"
 ## 回归测试（0 token，不连模型）
 
 ```bash
-npm test                   # 18 例：max-tokens 续写 / 429 冷却重试 / 熔断 / 上限 / 去重 / 消息完整性
+npm test                   # 20 例：max-tokens 续写 / 429 冷却重试 / 熔断 / 上限 / 去重 / 消息完整性
                            # + 6 例压缩吞轮（补枪、有产出不插手、超窗不插手、同轮只一次、
                            #   max-tokens 优先走旧分支、无检查点的 completed 保持安静）
                            # + 2 例输出夹死判定（只回 1 个 token 不补枪、真截断照常补）
