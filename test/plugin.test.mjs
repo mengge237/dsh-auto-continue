@@ -122,6 +122,8 @@ test('429 token-limit error auto-recovers after the cooldown', async () => {
   await sleep(4500)
   assert.equal(agent.sent.length, 1, 'retries after cooldown')
   assert.match(textOf(agent.sent[0]), /429/, 'reminder mentions 429')
+  assert.match(textOf(agent.sent[0]), /先核对.*已经部分落地|不要盲目重跑/,
+    'the replay prompt must warn about side effects already landed (2026-10-12 double-apply)')
   assert.ok(logs.some((l) => l[0] === 'warn' && JSON.stringify(l).includes('429')), 'warn log for 429 path')
 })
 

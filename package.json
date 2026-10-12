@@ -1,6 +1,6 @@
 {
   "name": "@mengge237/dsh-auto-continue",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "DSH 插件 v0.4.2：max-tokens 自动续写 + 429/限流自动恢复 + 压缩空转补枪（agent/status 挂点、完整 user message、429 熔断、v4 producer-owned source）。嘻嘻，我一定要用 DeepSeek harness",
   "type": "module",
   "main": "lib/index.js",
